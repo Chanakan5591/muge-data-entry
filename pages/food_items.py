@@ -1,7 +1,35 @@
+import hmac
 import streamlit as st
-import json
+import pymongo
+from pymongo.server_api import ServerApi
 
 st.set_page_config(page_title="ข้อมูลรายการอาหาร", page_icon="🍲")
+
+def check_password():
+    """Returns `True` if the user had the correct password."""
+
+    def password_entered():
+        """Checks whether a password entered by the user is correct."""
+        if hmac.compare_digest(st.session_state["password"], st.secrets["password"]):
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # Don't store the password.
+        else:
+            st.session_state["password_correct"] = False
+
+    # Return True if the password is validated.
+    if st.session_state.get("password_correct", False):
+        return True
+
+    # Show input for password.
+    st.text_input(
+        "Password", type="password", on_change=password_entered, key="password"
+    )
+    if "password_correct" in st.session_state:
+        st.error("😕 Password incorrect")
+    return False
+
+if not check_password():
+    st.stop()  # Do not continue if check_password is not True.
 
 st.sidebar.header("MUGE100 C10-297 Data Entry")
 st.sidebar.markdown("Implementation by Chanakan Moongthin")
@@ -10,21 +38,35 @@ st.sidebar.page_link("pages/stores.py", label="ข้อมูลร้านค
 st.sidebar.page_link("pages/food_items.py", label="ข้อมูลรายการอาหาร", icon="🍲")
 st.sidebar.page_link("pages/download_json.py", label="ดาวน์โหลดข้อมูล JSON", icon="⬇️")
 
+@st.cache_resource()
+def database_init():
+    return pymongo.MongoClient(st.secrets['mongo_uri'], server_api=ServerApi('1'))
+
+       
+mongo = database_init()
+
+if not mongo:
+    st.error('Cannot Access Data Storage')
+    st.stop()
+
 st.title("🍲 ข้อมูลรายการอาหาร")
 
+def load_canteen_data():
+    db = mongo.muge_canteen
+    data = db.canteen_data.find()
+    data = list(data)
+    return data
 
-def load_canteen_data(filepath="canteen_data.json"):
-    try:
-        with open(filepath, "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return []
+def save_canteen_data(canteen_data):
+    db = mongo.muge_canteen
+    canteen_collection = db.canteen_data
 
-
-def save_canteen_data(canteen_data, filepath="canteen_data.json"):
-    with open(filepath, "w") as f:
-        json.dump(canteen_data, f, indent=4)
-
+    for entry in canteen_data:
+        canteen_collection.replace_one(
+            {"id": entry['id']},
+            entry,
+            upsert=True
+        )
 
 canteen_data = load_canteen_data()
 
