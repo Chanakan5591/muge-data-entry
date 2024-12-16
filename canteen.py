@@ -53,17 +53,17 @@ if not mongo:
 st.title("🍽️ ข้อมูลโรงอาหาร")
 
 # Function to load canteen data from MongoDB
-def load_canteen_data() -> list:
+def load_canteens() -> list:
     db = mongo.muge_canteen
-    data = db.canteen_data.find()
+    data = db.canteens.find()
     return list(data)
 
 # Function to save canteen data to MongoDB
-def save_canteen_data(canteen_data):
+def save_canteens(canteens):
     db = mongo.muge_canteen
-    canteen_collection = db.canteen_data
+    canteen_collection = db.canteens
 
-    for entry in canteen_data:
+    for entry in canteens:
         canteen_collection.replace_one(
             {"id": entry['id']},
             entry,
@@ -103,15 +103,15 @@ st.session_state.with_airconditioning = st.checkbox(
     "มีเครื่องปรับอากาศ", value=st.session_state.with_airconditioning
 )
 
-canteen_collection = mongo.muge_canteen.canteen_data
+canteen_collection = mongo.muge_canteen.canteens
 
 # --- Add or Edit Entry Button ---
 if st.session_state.editing_id is None:
     button_label = "เพิ่มข้อมูล"
     if st.button(button_label):
-        canteen_data = load_canteen_data()  # Load data inside the button logic
+        canteens = load_canteens()  # Load data inside the button logic
         # Check for duplicate canteen names (case-insensitive)
-        canteen_names = [entry["canteen_name"].lower() for entry in canteen_data]
+        canteen_names = [entry["canteen_name"].lower() for entry in canteens]
         if st.session_state.canteen_name.lower() in canteen_names:
             st.error("มีชื่อโรงอาหารนี้อยู่แล้ว กรุณาใช้ชื่ออื่น")
         elif not st.session_state.canteen_name:
@@ -120,7 +120,7 @@ if st.session_state.editing_id is None:
             # Create a dictionary for the new entry
             entry = {
                 "id": (
-                    max([c["id"] for c in canteen_data], default=0) + 1
+                    max([c["id"] for c in canteens], default=0) + 1
                 ),
                 "canteen_name": st.session_state.canteen_name,
                 "busy_hours": {
@@ -144,19 +144,19 @@ if st.session_state.editing_id is None:
 else:
     button_label = "บันทึกการแก้ไข"
     if st.button(button_label):
-        canteen_data = load_canteen_data()  # Load data inside the button logic
+        canteens = load_canteens()  # Load data inside the button logic
         if not st.session_state.canteen_name:
             st.error("กรุณากรอกชื่อโรงอาหาร")
         else:
             # Check for duplicate canteen names (case-insensitive),
             # excluding the current canteen being edited
-            canteen_names = [entry["canteen_name"].lower() for entry in canteen_data if entry["id"] != st.session_state.editing_id]
+            canteen_names = [entry["canteen_name"].lower() for entry in canteens if entry["id"] != st.session_state.editing_id]
             if st.session_state.canteen_name.lower() in canteen_names:
                 st.error("มีชื่อโรงอาหารนี้อยู่แล้ว กรุณาใช้ชื่ออื่น")
                 st.rerun()  # Force refresh to show error
             else:
                 # Find the entry to edit
-                entry_index = next((i for i, entry in enumerate(canteen_data) if entry["id"] == st.session_state.editing_id), None)
+                entry_index = next((i for i, entry in enumerate(canteens) if entry["id"] == st.session_state.editing_id), None)
 
                 if entry_index is not None:
                     canteen_collection.update_one(
@@ -186,10 +186,10 @@ else:
 # --- Display, Edit, and Delete ---
 st.header("ข้อมูลโรงอาหารปัจจุบัน")
 
-canteen_data = load_canteen_data() # Load data for display
+canteens = load_canteens() # Load data for display
 
 # Create columns for actions
-for i, entry in enumerate(canteen_data):
+for i, entry in enumerate(canteens):
     col1, col2, col3 = st.columns([3, 1, 1])
 
     with col1:
