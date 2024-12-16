@@ -1,7 +1,9 @@
-import hmac
 import streamlit as st
 import pymongo
 from pymongo.server_api import ServerApi
+import datetime
+import hmac
+from bson.objectid import ObjectId
 
 st.set_page_config(page_title="ข้อมูลรายการอาหาร", page_icon="🍲")
 
@@ -36,254 +38,145 @@ st.sidebar.markdown("Implementation by Chanakan Moongthin")
 st.sidebar.page_link("canteen.py", label="ข้อมูลโรงอาหาร", icon="🍽️")
 st.sidebar.page_link("pages/stores.py", label="ข้อมูลร้านค้า", icon="🏪")
 st.sidebar.page_link("pages/food_items.py", label="ข้อมูลรายการอาหาร", icon="🍲")
-st.sidebar.page_link("pages/download_json.py", label="ดาวน์โหลดข้อมูล JSON", icon="⬇️")
 
 @st.cache_resource()
 def database_init():
-    return pymongo.MongoClient(st.secrets['mongo_uri'], server_api=ServerApi('1'))
+    return pymongo.MongoClient(st.secrets["mongo_uri"], server_api=ServerApi("1"))
 
-       
 mongo = database_init()
 
 if not mongo:
-    st.error('Cannot Access Data Storage')
+    st.error("Cannot Access Data Storage")
     st.stop()
 
 st.title("🍲 ข้อมูลรายการอาหาร")
 
+# --- Database Operations ---
+canteen_collection = mongo.canteen_info.canteens
+store_collection = mongo.canteen_info.stores
+
+# Function to load canteen data from MongoDB
 def load_canteens():
-    db = mongo.canteen_info
-    data = db.canteens.find()
-    data = list(data)
-    return data
+    data = canteen_collection.find()
+    return list(data)
 
-def save_canteens(canteens):
-    db = mongo.canteen_info
-    canteen_collection = db.canteens
+def load_stores():
+    data = store_collection.find()
+    return list(data)
 
-    for entry in canteens:
-        canteen_collection.replace_one(
-            {"id": entry['id']},
-            entry,
-            upsert=True
-        )
+def update_store(store_id, updated_store):
+    store_collection.update_one({"_id": ObjectId(store_id)}, {"$set": updated_store})
 
+# --- Load and Extract Data ---
 canteens = load_canteens()
+stores = load_stores()
 
-# --- Extract Existing Canteen Names, Store Names---
-existing_canteen_names = [entry["canteen_name"] for entry in canteens]
-existing_store_names = {}
-for canteen in canteens:
-    if canteen["canteen_name"] not in existing_store_names:
-        existing_store_names[canteen["canteen_name"]] = [
-            store["name"] for store in canteen["stores"]
-        ]
+# --- Session State Initialization ---
+if "selected_canteen_id" not in st.session_state:
+    st.session_state.selected_canteen_id = None
+if "selected_store_id" not in st.session_state:
+    st.session_state.selected_store_id = None
+if "food_item_name" not in st.session_state:
+    st.session_state.food_item_name = ""
+if "food_item_description" not in st.session_state:
+    st.session_state.food_item_description = ""
+if "food_item_price" not in st.session_state:
+    st.session_state.food_item_price = 0.0
+if "food_item_category" not in st.session_state:
+    st.session_state.food_item_category = "MAIN"
 
-# --- Initialize Session State ---
-if "selected_canteen" not in st.session_state:
-    st.session_state.selected_canteen = (
-        existing_canteen_names[0] if existing_canteen_names else None
-    )
-if "selected_store" not in st.session_state:
-    st.session_state.selected_store = ""
-if "editing_food_index" not in st.session_state:
-    st.session_state.editing_food_index = None
-if "food_name" not in st.session_state:
-    st.session_state.food_name = ""
-if "normal_price" not in st.session_state:
-    st.session_state.normal_price = 0.0
-if "special_price" not in st.session_state:
-    st.session_state.special_price = None
-food_name_key = f"food_name_{st.session_state.editing_food_index}"
-normal_price_key = f"normal_price_{st.session_state.editing_food_index}"
-special_price_key = f"special_price_{st.session_state.editing_food_index}"
-
-if st.session_state.editing_food_index is not None:
-    canteen_index_edit = next(
-        (
-            i
-            for i, c in enumerate(canteens)
-            if c["canteen_name"] == st.session_state.selected_canteen
-        ),
-        None,
-    )
-    if canteen_index_edit is not None:
-        store_index_edit = next(
-            (
-                i
-                for i, s in enumerate(canteens[canteen_index_edit]["stores"])
-                if s["name"] == st.session_state.selected_store
-            ),
-            None,
-        )
-        if store_index_edit is not None:
-            if st.session_state.editing_food_index < len(
-                canteens[canteen_index_edit]["stores"][store_index_edit][
-                    "food_items"
-                ]
-            ):
-                food_item = canteens[canteen_index_edit]["stores"][
-                    store_index_edit
-                ]["food_items"][st.session_state.editing_food_index]
-                st.session_state.food_name = food_item["name"]
-                st.session_state.normal_price = food_item["prices"]["normal"]
-                st.session_state.special_price = food_item["prices"].get("special")
-
-# --- Select Canteen ---
-canteen_selection = st.selectbox(
+# --- Dropdowns to Select Canteen and Store ---
+canteen_options = {str(c["_id"]): c["name"] for c in canteens}
+st.session_state.selected_canteen_id = st.selectbox(
     "เลือกโรงอาหาร",
-    options=existing_canteen_names,
-    index=existing_canteen_names.index(st.session_state.selected_canteen)
-    if st.session_state.selected_canteen in existing_canteen_names
-    else 0,
-    key="canteen_selection",
+    options=canteen_options.keys(),
+    index=list(canteen_options.keys()).index(st.session_state.selected_canteen_id) if st.session_state.selected_canteen_id in canteen_options else 0,
+    format_func=lambda x: canteen_options[x],
+    key="canteen_select"
 )
 
-# --- Update Session State ---
-if canteen_selection != st.session_state.selected_canteen:
-    st.session_state.selected_canteen = canteen_selection
-    st.session_state.selected_store = ""  # Reset store selection
-
-# --- Select Store ---
-if st.session_state.selected_canteen:
-    store_selection = st.selectbox(
+if st.session_state.selected_canteen_id:
+    store_options = {str(s["_id"]): s["name"] for s in stores if str(s["canteenId"]) == st.session_state.selected_canteen_id}
+    st.session_state.selected_store_id = st.selectbox(
         "เลือกร้านค้า",
-        options=existing_store_names.get(st.session_state.selected_canteen, []),
-        index=existing_store_names.get(st.session_state.selected_canteen, []).index(
-            st.session_state.selected_store
-        )
-        if st.session_state.selected_store
-        in existing_store_names.get(st.session_state.selected_canteen, [])
-        else 0,
-        key="store_selection",
+        options=store_options.keys(),
+        index=list(store_options.keys()).index(st.session_state.selected_store_id) if st.session_state.selected_store_id in store_options else 0,
+        format_func=lambda x: store_options[x],
+        key="store_select"
     )
 
-    # --- Update Session State ---
-    if store_selection != st.session_state.selected_store:
-        st.session_state.selected_store = store_selection
+# --- Input Form for Food Item ---
+if st.session_state.selected_store_id:
+    st.header("เพิ่มรายการอาหาร")
 
-    if not st.session_state.selected_store:
-        st.info("กรุณาเลือกร้านค้าก่อน")
+    st.session_state.food_item_name = st.text_input("ชื่ออาหาร", value=st.session_state.food_item_name)
+    st.session_state.food_item_description = st.text_area("คำอธิบาย (Optional)", value=st.session_state.food_item_description)
+    st.session_state.food_item_price = st.number_input("ราคา", min_value=0.0, format="%.2f", value=st.session_state.food_item_price)
+    st.session_state.food_item_category = st.selectbox(
+        "หมวดหมู่",
+        options=["MAIN", "SIDE", "DRINK", "VEGETARIAN"],
+        index=["MAIN", "SIDE", "DRINK", "VEGETARIAN"].index(st.session_state.food_item_category),
+        format_func=lambda x: {
+            "MAIN": "อาหารจานหลัก",
+            "SIDE": "กับข้าว",
+            "DRINK": "เครื่องดื่ม",
+            "VEGETARIAN": "มังสวิรัติ"
+        }.get(x, x)
+    )
+
+    if st.button("เพิ่มรายการอาหาร"):
+        if not st.session_state.food_item_name or st.session_state.food_item_price == 0.0:
+            st.error("กรุณากรอกชื่ออาหารและราคา")
+        else:
+            new_food_item = {
+                "name": st.session_state.food_item_name,
+                "description": st.session_state.food_item_description,
+                "price": st.session_state.food_item_price,
+                "category": st.session_state.food_item_category,
+            }
+
+            # Find the selected store and update its menu
+            selected_store = store_collection.find_one({"_id": ObjectId(st.session_state.selected_store_id)})
+            if selected_store:
+                if "menu" not in selected_store:
+                    selected_store["menu"] = []
+
+                # Append the new food item to the menu
+                selected_store["menu"].append(new_food_item)
+                
+                # Update the store in the database
+                update_store(st.session_state.selected_store_id, selected_store)
+
+                st.success(f"เพิ่มรายการอาหาร '{st.session_state.food_item_name}' เรียบร้อยแล้ว")
+
+                # Reset input values
+                st.session_state.food_item_name = ""
+                st.session_state.food_item_description = ""
+                st.session_state.food_item_price = 0.0
+                st.session_state.food_item_category = "MAIN"
+                st.rerun()
+
+    # --- Display Existing Menu Items ---
+    st.header("รายการอาหารที่มีอยู่")
+    selected_store = next((s for s in stores if str(s["_id"]) == st.session_state.selected_store_id), None)
+    if selected_store and "menu" in selected_store:
+        for i, item in enumerate(selected_store["menu"]):
+            st.write(f"**ชื่อ:** {item['name']}")
+            if item["description"]:
+                st.write(f"**คำอธิบาย:** {item['description']}")
+            st.write(f"**ราคา:** {item['price']:.2f} บาท")
+            st.write(f"**หมวดหมู่:** {item['category']}")
+
+            col1, col2 = st.columns([1, 5])
+            
+            if col1.button("ลบ", key=f"delete_item_{i}"):
+                # Remove the item from the menu
+                selected_store["menu"].pop(i)
+                
+                # Update the store in the database
+                update_store(st.session_state.selected_store_id, selected_store)
+                st.rerun()
+            
+            st.markdown("---")  # Add a separator between items
     else:
-        canteen_index = next(
-            (
-                i
-                for i, c in enumerate(canteens)
-                if c["canteen_name"] == st.session_state.selected_canteen
-            ),
-            None,
-        )
-        store_index = next(
-            (
-                i
-                for i, s in enumerate(canteens[canteen_index]["stores"])
-                if s["name"] == st.session_state.selected_store
-            ),
-            None,
-        )
-
-        # --- Input Fields for Food Items ---
-        st.subheader("รายการอาหาร")
-        food_name = st.text_input(
-            "ชื่ออาหาร", value=st.session_state.food_name, key=food_name_key
-        )
-        normal_price = st.number_input(
-            "ราคา (ธรรมดา)",
-            min_value=0.0,
-            format="%.2f",
-            value=st.session_state.normal_price,
-            key=normal_price_key,
-        )
-        special_price = st.number_input(
-            "ราคา (พิเศษ)",
-            min_value=0.0,
-            format="%.2f",
-            value=st.session_state.special_price,
-            key=special_price_key,
-        )
-
-        if food_name != st.session_state.food_name:
-            st.session_state.food_name = food_name
-        if normal_price != st.session_state.normal_price:
-            st.session_state.normal_price = normal_price
-        if special_price != st.session_state.special_price:
-            st.session_state.special_price = special_price
-
-        button_label = (
-            "บันทึกการแก้ไข"
-            if st.session_state.editing_food_index is not None
-            else "เพิ่มรายการอาหาร"
-        )
-        if st.button(button_label):
-            if st.session_state.food_name and st.session_state.normal_price is not None:
-                food_item = {
-                    "name": st.session_state.food_name,
-                    "prices": {"normal": st.session_state.normal_price},
-                }
-                if st.session_state.special_price is not None:
-                    food_item["prices"]["special"] = st.session_state.special_price
-
-                if st.session_state.editing_food_index is not None:
-                    canteens[canteen_index]["stores"][store_index]["food_items"][
-                        st.session_state.editing_food_index
-                    ] = food_item
-                    st.success(
-                        f"แก้ไขรายการอาหาร {st.session_state.food_name} ในร้าน {st.session_state.selected_store} เรียบร้อยแล้ว!"
-                    )
-                    st.session_state.editing_food_index = None
-                    st.session_state.food_name = ""
-                    st.session_state.normal_price = 0.0
-                    st.session_state.special_price = None
-                else:
-                    if (
-                        "food_items"
-                        not in canteens[canteen_index]["stores"][store_index]
-                    ):
-                        canteens[canteen_index]["stores"][store_index][
-                            "food_items"
-                        ] = []
-                    canteens[canteen_index]["stores"][store_index][
-                        "food_items"
-                    ].append(food_item)
-                    st.success(
-                        f"เพิ่มรายการอาหาร {st.session_state.food_name} ในร้าน {st.session_state.selected_store} เรียบร้อยแล้ว!"
-                    )
-                    st.session_state.food_name = ""
-                    st.session_state.normal_price = 0.0
-                    st.session_state.special_price = None
-
-                save_canteens(canteens)
-
-            else:
-                st.error("กรุณากรอกชื่ออาหารและราคา(ธรรมดา)")
-
-        st.header(
-            f"รายการอาหารของร้าน {st.session_state.selected_store} ({st.session_state.selected_canteen})"
-        )
-        if "food_items" in canteens[canteen_index]["stores"][store_index]:
-            for i, item in enumerate(
-                canteens[canteen_index]["stores"][store_index]["food_items"]
-            ):
-                col1, col2, col3 = st.columns([3, 1, 1])
-                with col1:
-                    prices_text = f"{item['prices']['normal']:.2f} บาท"
-                    if "special" in item["prices"]:
-                        prices_text += f" (พิเศษ: {item['prices']['special']:.2f} บาท)"
-                    st.write(f"{i+1}. {item['name']} - {prices_text}")
-                with col2:
-                    if st.button(f"แก้ไข", key=f"edit_food_{i}"):
-                        st.session_state.editing_food_index = i
-                        st.session_state.food_name = item["name"]
-                        st.session_state.normal_price = item["prices"]["normal"]
-                        st.session_state.special_price = item["prices"].get("special")
-                        st.rerun()
-                with col3:
-                    if st.button(f"ลบ", key=f"delete_food_{i}"):
-                        canteens[canteen_index]["stores"][store_index][
-                            "food_items"
-                        ].pop(i)
-                        save_canteens(canteens)
-                        st.session_state.editing_food_index = None
-                        st.rerun()
-else:
-    st.info("กรุณาเลือกโรงอาหารก่อน")
+        st.write("ยังไม่มีรายการอาหารสำหรับร้านค้านี้")

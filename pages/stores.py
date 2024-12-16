@@ -3,6 +3,7 @@ import pymongo
 from pymongo.server_api import ServerApi
 import datetime
 import hmac
+from bson.objectid import ObjectId
 
 st.set_page_config(page_title="ข้อมูลร้านค้า", page_icon="🏪")
 
@@ -37,344 +38,272 @@ st.sidebar.markdown("Implementation by Chanakan Moongthin")
 st.sidebar.page_link("canteen.py", label="ข้อมูลโรงอาหาร", icon="🍽️")
 st.sidebar.page_link("pages/stores.py", label="ข้อมูลร้านค้า", icon="🏪")
 st.sidebar.page_link("pages/food_items.py", label="ข้อมูลรายการอาหาร", icon="🍲")
-st.sidebar.page_link("pages/download_json.py", label="ดาวน์โหลดข้อมูล JSON", icon="⬇️")
 
 @st.cache_resource()
 def database_init():
-    return pymongo.MongoClient(st.secrets['mongo_uri'], server_api=ServerApi('1'))
+    return pymongo.MongoClient(st.secrets["mongo_uri"], server_api=ServerApi("1"))
 
-       
 mongo = database_init()
 
 if not mongo:
-    st.error('Cannot Access Data Storage')
+    st.error("Cannot Access Data Storage")
     st.stop()
 
 st.title("🏪 ข้อมูลร้านค้า")
 
+# --- Database Operations ---
+canteen_collection = mongo.canteen_info.canteens  # Lowercase collection name, correct DB
+store_collection = mongo.canteen_info.stores  # Lowercase collection name, correct DB
+
 # Function to load canteen data from MongoDB
 def load_canteens():
-    db = mongo.canteen_info
-    data = db.canteens.find()
-    data = list(data)
-    return data
+    data = canteen_collection.find()
+    return list(data)
 
-# Function to save canteen data to MongoDB
-def save_canteens(canteens):
-    db = mongo.canteen_info
-    canteen_collection = db.canteens
+def load_stores():
+    data = store_collection.find()
+    return list(data)
 
-    for entry in canteens:
-        canteen_collection.replace_one(
-            {"id": entry['id']},
-            entry,
-            upsert=True
-        )
+# Function to update canteen data in MongoDB
+def update_canteen(canteen_id, updated_canteen):
+    canteen_collection.update_one({"_id": ObjectId(canteen_id)}, {"$set": updated_canteen})
 
-# Load existing canteen data
+def update_store(store_id, updated_store):
+    store_collection.update_one({"_id": ObjectId(store_id)}, {"$set": updated_store})
+
+def delete_store(store_id):
+    store_collection.delete_one({"_id": ObjectId(store_id)})
+
+# --- Load and Extract Data ---
 canteens = load_canteens()
-
-# --- Extract Existing Canteen Names ---
-existing_canteen_names = [entry["canteen_name"] for entry in canteens]
+stores = load_stores()
+existing_canteen_names = [entry["name"] for entry in canteens]
 
 # --- Input Form ---
 st.header("เพิ่ม/แก้ไข ข้อมูลร้านค้า")
 
-# Use session state to store input values and manage widget keys
-if "editing_store_index" not in st.session_state:
-    st.session_state.editing_store_index = None
+# --- Session State Initialization ---
+if "editing_store_id" not in st.session_state:
+    st.session_state.editing_store_id = None
+if "selected_canteen_id" not in st.session_state:
+    st.session_state.selected_canteen_id = None
+if "store_name" not in st.session_state:
+    st.session_state.store_name = ""
+if "opening_hours" not in st.session_state:
+    st.session_state.opening_hours = []
+if "opening_hours_mode" not in st.session_state:
+    st.session_state.opening_hours_mode = "everyday"  # Default mode
 
 def init_session_state(store=None):
     st.session_state.store_name = store["name"] if store else ""
-    st.session_state.opening_option = store["opening_hours"]["frequency"] if store else "everyday" # Changed to English
-    st.session_state.opening_days = list(store["opening_hours"]["days"].keys()) if store and st.session_state.opening_option == "specific_days" else [] # Changed to English
-    st.session_state.opening_start_date = datetime.datetime.strptime(store["opening_hours"]["start_date"], "%Y-%m-%d").date() if store and "start_date" in store["opening_hours"] else datetime.date.today()
-    st.session_state.opening_end_date = datetime.datetime.strptime(store["opening_hours"]["end_date"], "%Y-%m-%d").date() if store and "end_date" in store["opening_hours"] else datetime.date.today()
-    if store:
-        st.session_state.opening_hours_dict = {
-            day: {
-                "start_time": datetime.datetime.strptime(hours["start_time"], "%H:%M").time(),
-                "end_time": datetime.datetime.strptime(hours["end_time"], "%H:%M").time()
-            } for day, hours in store["opening_hours"]["days"].items()
-        } if store and st.session_state.opening_option in ["specific_days", "date_range"] else { # Changed to English
-            "everyday": {
-                "start_time": datetime.datetime.strptime(store["opening_hours"]["days"]["everyday"]["start_time"], "%H:%M").time(),
-                "end_time": datetime.datetime.strptime(store["opening_hours"]["days"]["everyday"]["end_time"], "%H:%M").time()
-            } if store and "everyday" in store["opening_hours"]["days"] else {
-                "start_time": datetime.time(7, 0),
-                "end_time": datetime.time(16, 0)
-            }
-        }
-    else:
-        st.session_state.opening_hours_dict = {
-            "everyday": {
-                "start_time": datetime.time(7, 0),
-                "end_time": datetime.time(16, 0)
-            }
-        }
+    st.session_state.opening_hours_mode = (
+        "everyday"
+        if store
+        and store.get("openingHours")
+        and len(store.get("openingHours")) == 7  # Check if all 7 days are present
+        and all(  # Check if all days of the week are present
+            day in [d["dayOfWeek"] for d in store.get("openingHours")]
+            for day in [
+                "MONDAY",
+                "TUESDAY",
+                "WEDNESDAY",
+                "THURSDAY",
+                "FRIDAY",
+                "SATURDAY",
+                "SUNDAY",
+            ]
+        )
+        else "per_day"
+    )
+    # Correctly initialize opening_hours from the store data
+    st.session_state.opening_hours = (
+        store.get("openingHours", []) if store else []
+    )
 
-# Initialize session state based on whether we are editing or adding
-if st.session_state.editing_store_index is not None:
-    canteen_index = next((i for i, c in enumerate(canteens) if c["canteen_name"] == st.session_state.selected_canteen), None)
-    store_to_edit = canteens[canteen_index]["stores"][st.session_state.editing_store_index]
-    init_session_state(store_to_edit)
+if st.session_state.editing_store_id:
+    # Find the store being edited
+    for store in stores:
+        if str(store["_id"]) == st.session_state.editing_store_id:
+            st.session_state.selected_canteen_id = str(store["canteenId"])
+            init_session_state(store)
+            break
 else:
     init_session_state()
 
-# --- Unique keys for selectbox and text input ---
-store_name_key = f"store_name_{st.session_state.editing_store_index}"
-opening_option_key = f"opening_option_{st.session_state.editing_store_index}"
-
 # --- Input Fields ---
-st.session_state.selected_canteen = st.selectbox(
+# Select Canteen
+canteen_options = {str(c["_id"]): c["name"] for c in canteens}
+st.session_state.selected_canteen_id = st.selectbox(
     "เลือกโรงอาหาร",
-    options=existing_canteen_names,
-    index=0
+    options=canteen_options.keys(),
+    index=list(canteen_options.keys()).index(st.session_state.selected_canteen_id) if st.session_state.selected_canteen_id in canteen_options else 0,
+    format_func=lambda x: canteen_options[x],
 )
 
-if not st.session_state.selected_canteen:
+if not st.session_state.selected_canteen_id:
     st.info("กรุณาเลือกโรงอาหารก่อน")
 else:
-    canteen_index = next((i for i, c in enumerate(canteens) if c["canteen_name"] == st.session_state.selected_canteen), None)
-
-    # --- Input Fields for Store ---
-    st.session_state.store_name = st.text_input("ชื่อร้านค้า", value=st.session_state.store_name, key=store_name_key)
-
-    # --- Frequency Selection (Modified) ---
-    frequencies_thai = ["ทุกวัน", "วันเว้นวัน", "เฉพาะบางวัน", "ช่วงวันที่"]
-    frequencies_english = ["everyday", "every_other_day", "specific_days", "date_range"]
-    frequencies_map = dict(zip(frequencies_english, frequencies_thai)) # Mapping for display
-
-    
-    st.session_state.opening_option_thai = st.selectbox(
-        "ความถี่", frequencies_thai, key=opening_option_key, index=frequencies_thai.index(frequencies_map.get(st.session_state.opening_option, "ทุกวัน")) # Default to "ทุกวัน" if not found
+    # Store Name
+    st.session_state.store_name = st.text_input(
+        "ชื่อร้านค้า", value=st.session_state.store_name
     )
-    st.session_state.opening_option = [key for key, value in frequencies_map.items() if value == st.session_state.opening_option_thai][0] # Convert back to English for internal use
 
-    days_of_week = ["จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์", "อาทิตย์"]
-    days_of_week_map = {
-        "จันทร์": "monday",
-        "อังคาร": "tuesday",
-        "พุธ": "wednesday",
-        "พฤหัสบดี": "thursday",
-        "ศุกร์": "friday",
-        "เสาร์": "saturday",
-        "อาทิตย์": "sunday"
-    }
+    # Opening Hours Mode
+    st.session_state.opening_hours_mode = st.radio(
+        "เลือกรูปแบบเวลาเปิดปิด",
+        ["everyday", "per_day"],
+        index=0 if st.session_state.opening_hours_mode == "everyday" else 1,
+        format_func=lambda x: "ทุกวัน" if x == "everyday" else "เฉพาะแต่ละวัน",
+    )
 
-    if st.session_state.opening_option == "specific_days":
-        opening_days_thai = st.multiselect(
-            "เลือกวัน",
-            days_of_week,
-            default=[day for day in days_of_week if days_of_week_map[day] in st.session_state.opening_days]
+    # Opening Hours
+    st.write("**เวลาเปิดปิด**")
+
+    # Unified approach for handling opening hours (similar to "everyday")
+    days_of_week = [
+        "MONDAY",
+        "TUESDAY",
+        "WEDNESDAY",
+        "THURSDAY",
+        "FRIDAY",
+        "SATURDAY",
+        "SUNDAY",
+    ]
+
+    if st.session_state.opening_hours_mode == "everyday":
+        # If mode is "everyday", create entries for all days
+        opening_hours_col1, opening_hours_col2 = st.columns(2)
+        new_start_time = opening_hours_col1.time_input(
+            "เวลาเริ่มต้น (ทุกวัน)", value=datetime.time(8, 0), key="new_start_everyday"
+        )
+        new_end_time = opening_hours_col2.time_input(
+            "เวลาสิ้นสุด (ทุกวัน)", value=datetime.time(17, 0), key="new_end_everyday"
         )
 
-        st.session_state.opening_days = [days_of_week_map[day] for day in opening_days_thai if day in days_of_week_map]
-        
-        if st.session_state.opening_days:
-            for day in st.session_state.opening_days:
-                day_thai = [thai_day for thai_day, eng_day in days_of_week_map.items() if eng_day == day][0]
-                with st.expander(f"ตั้งค่าเวลาเปิดปิดของวัน{day_thai}"):
-                    if day not in st.session_state.opening_hours_dict:
-                        st.session_state.opening_hours_dict[day] = {
-                            "start_time": datetime.time(7, 0),
-                            "end_time": datetime.time(16, 0)
-                        }
-
-                    st.session_state.opening_hours_dict[day]["start_time"] = st.time_input(
-                        f"เวลาเปิด ({day_thai})",
-                        value=st.session_state.opening_hours_dict[day]["start_time"],
-                        key=f"start_time_{day}_{st.session_state.editing_store_index}"
-                    )
-                    st.session_state.opening_hours_dict[day]["end_time"] = st.time_input(
-                        f"เวลาปิด ({day_thai})",
-                        value=st.session_state.opening_hours_dict[day]["end_time"],
-                        key=f"end_time_{day}_{st.session_state.editing_store_index}"
-                    )
-
-                    if st.session_state.opening_hours_dict[day]["end_time"] < st.session_state.opening_hours_dict[day]["start_time"]:
-                        st.error(f"เวลาปิดของวัน{day_thai} ต้องมากกว่าเวลาเปิด")
-    elif st.session_state.opening_option == "date_range":
-        st.session_state.opening_start_date = st.date_input(
-            "วันที่เริ่มต้น", value=st.session_state.opening_start_date
-        )
-        st.session_state.opening_end_date = st.date_input(
-            "วันที่สิ้นสุด", value=st.session_state.opening_end_date
-        )
-        if st.session_state.opening_end_date < st.session_state.opening_start_date:
-            st.error("วันที่สิ้นสุดต้องมากกว่าวันที่เริ่มต้น")
-
-        for day in days_of_week_map.values():
-            day_thai = [thai_day for thai_day, eng_day in days_of_week_map.items() if eng_day == day][0]
-            with st.expander(f"ตั้งค่าเวลาเปิดปิดของวัน{day_thai}"):
-                if day not in st.session_state.opening_hours_dict:
-                    st.session_state.opening_hours_dict[day] = {
-                        "start_time": datetime.time(7, 0),
-                        "end_time": datetime.time(16, 0)
-                    }
-
-                st.session_state.opening_hours_dict[day]["start_time"] = st.time_input(
-                    f"เวลาเปิด ({day_thai})",
-                    value=st.session_state.opening_hours_dict[day]["start_time"],
-                    key=f"start_time_{day}_{st.session_state.editing_store_index}"
-                )
-                st.session_state.opening_hours_dict[day]["end_time"] = st.time_input(
-                    f"เวลาปิด ({day_thai})",
-                    value=st.session_state.opening_hours_dict[day]["end_time"],
-                    key=f"end_time_{day}_{st.session_state.editing_store_index}"
-                )
-
-                if st.session_state.opening_hours_dict[day]["end_time"] < st.session_state.opening_hours_dict[day]["start_time"]:
-                    st.error(f"เวลาปิดของวัน{day_thai} ต้องมากกว่าเวลาเปิด")
-
-    elif st.session_state.opening_option == "everyday" or st.session_state.opening_option == "every_other_day":
-        if "everyday" not in st.session_state.opening_hours_dict:
-            st.session_state.opening_hours_dict["everyday"] = {
-                "start_time": datetime.time(7, 0),
-                "end_time": datetime.time(16, 0)
+        st.session_state.opening_hours = [
+            {
+                "dayOfWeek": day,
+                "start": new_start_time.strftime("%H:%M"),
+                "end": new_end_time.strftime("%H:%M"),
             }
-        st.session_state.opening_hours_dict["everyday"]["start_time"] = st.time_input(
-            f"เวลาเปิด",
-            value=st.session_state.opening_hours_dict["everyday"]["start_time"],
-            key=f"start_time_ทุกวัน_{st.session_state.editing_store_index}"
+            for day in days_of_week
+        ]
+
+    else:  # per_day mode
+        for day in days_of_week:
+            # Find existing entry for the day
+            existing_entry = next(
+                (
+                    entry
+                    for entry in st.session_state.opening_hours
+                    if entry["dayOfWeek"] == day
+                ),
+                None,
+            )
+
+            st.write(f"**{day}**")
+            opening_hours_col1, opening_hours_col2 = st.columns(2)
+
+            # Use existing values or defaults
+            default_start = (
+                datetime.datetime.strptime(existing_entry["start"], "%H:%M").time()
+                if existing_entry
+                else datetime.time(8, 0)
+            )
+            default_end = (
+                datetime.datetime.strptime(existing_entry["end"], "%H:%M").time()
+                if existing_entry
+                else datetime.time(17, 0)
+            )
+
+            new_start_time = opening_hours_col1.time_input(
+                "เวลาเริ่มต้น", value=default_start, key=f"new_start_{day}"
+            )
+            new_end_time = opening_hours_col2.time_input(
+                "เวลาสิ้นสุด", value=default_end, key=f"new_end_{day}"
+            )
+
+            # Update or add the entry in session state
+            new_opening_hour = {
+                "dayOfWeek": day,
+                "start": new_start_time.strftime("%H:%M"),
+                "end": new_end_time.strftime("%H:%M"),
+            }
+
+            if existing_entry:
+                # Update existing entry
+                existing_entry_index = st.session_state.opening_hours.index(
+                    existing_entry
+                )
+                st.session_state.opening_hours[existing_entry_index] = new_opening_hour
+            else:
+                # Add new entry
+                st.session_state.opening_hours.append(new_opening_hour)
+
+    # Display opening hours
+    for opening_hour in st.session_state.opening_hours:
+        st.write(
+            f"- {opening_hour['dayOfWeek']}: {opening_hour['start']} ถึง {opening_hour['end']}"
         )
-        st.session_state.opening_hours_dict["everyday"]["end_time"] = st.time_input(
-            f"เวลาปิด",
-            value=st.session_state.opening_hours_dict["everyday"]["end_time"],
-            key=f"end_time_ทุกวัน_{st.session_state.editing_store_index}"
-        )
-        if st.session_state.opening_hours_dict["everyday"]["end_time"] < st.session_state.opening_hours_dict["everyday"]["start_time"]:
-            st.error(f"เวลาปิดต้องมากกว่าเวลาเปิด")
 
     # --- Add or Edit Store Button ---
-    if st.session_state.editing_store_index is None:
+    if st.session_state.editing_store_id is None:
         button_label = "เพิ่มร้านค้า"
         if st.button(button_label):
             if not st.session_state.store_name:
                 st.error("กรุณากรอกชื่อร้านค้า")
+            elif not st.session_state.opening_hours:
+                st.error("กรุณาเพิ่มเวลาเปิดปิด")
             else:
+                # opening_hours is already populated correctly for both modes
                 new_store = {
                     "name": st.session_state.store_name,
-                    "opening_hours": {
-                        "frequency": st.session_state.opening_option,
-                        "days": {}
-                    },
-                    "food_items": []  # Create empty food_items list
+                    "canteenId": ObjectId(st.session_state.selected_canteen_id),
+                    "openingHours": st.session_state.opening_hours,
+                    "menu": [],
                 }
-                
-                if st.session_state.opening_option == "specific_days":
-                    new_store["opening_hours"]["days"] = {
-                        day: {
-                            "start_time": st.session_state.opening_hours_dict[day]["start_time"].strftime("%H:%M"),
-                            "end_time": st.session_state.opening_hours_dict[day]["end_time"].strftime("%H:%M")
-                        } for day in st.session_state.opening_days
-                    }
-                elif st.session_state.opening_option == "date_range":
-                    new_store["opening_hours"]["start_date"] = st.session_state.opening_start_date.strftime("%Y-%m-%d")
-                    new_store["opening_hours"]["end_date"] = st.session_state.opening_end_date.strftime("%Y-%m-%d")
-                    new_store["opening_hours"]["days"] = {
-                        day: {
-                            "start_time": st.session_state.opening_hours_dict[day]["start_time"].strftime("%H:%M"),
-                            "end_time": st.session_state.opening_hours_dict[day]["end_time"].strftime("%H:%M")
-                        } for day in days_of_week_map.values()
-                    }
-                elif st.session_state.opening_option == "everyday" or st.session_state.opening_option == "every_other_day":
-                    new_store["opening_hours"]["days"]["everyday"] = {
-                        "start_time": st.session_state.opening_hours_dict["everyday"]["start_time"].strftime("%H:%M"),
-                        "end_time": st.session_state.opening_hours_dict["everyday"]["end_time"].strftime("%H:%M")
-                    }
+                result = store_collection.insert_one(new_store)
+                new_store_id = result.inserted_id
 
-                canteens[canteen_index]["stores"].append(new_store)
-                save_canteens(canteens)
-                st.success(f"เพิ่มร้านค้า {st.session_state.store_name} ใน {st.session_state.selected_canteen} เรียบร้อยแล้ว!")
+                st.success(
+                    f"เพิ่มร้านค้า {st.session_state.store_name} ใน {canteen_options[st.session_state.selected_canteen_id]} เรียบร้อยแล้ว!"
+                )
 
-                # Reset input values in session state
-                st.session_state.editing_store_index = None
-                init_session_state()
-                st.rerun()
-    else:
-        button_label = "บันทึกการแก้ไข"
-        if st.button(button_label):
-            if not st.session_state.store_name:
-                st.error("กรุณากรอกชื่อร้านค้า")
-            else:
-                updated_store = {
-                    "name": st.session_state.store_name,
-                    "opening_hours": {
-                        "frequency": st.session_state.opening_option,
-                        "days": {}
-                    },
-                    "food_items": canteens[canteen_index]["stores"][st.session_state.editing_store_index][
-                        "food_items"
-                    ],  # Keep existing food_items
-                }
-
-                if st.session_state.opening_option == "specific_days":
-                    updated_store["opening_hours"]["days"] = {
-                        day: {
-                            "start_time": st.session_state.opening_hours_dict[day]["start_time"].strftime("%H:%M"),
-                            "end_time": st.session_state.opening_hours_dict[day]["end_time"].strftime("%H:%M")
-                        } for day in st.session_state.opening_days
-                    }
-                elif st.session_state.opening_option == "date_range":
-                    updated_store["opening_hours"]["start_date"] = st.session_state.opening_start_date.strftime("%Y-%m-%d")
-                    updated_store["opening_hours"]["end_date"] = st.session_state.opening_end_date.strftime("%Y-%m-%d")
-                    updated_store["opening_hours"]["days"] = {
-                        day: {
-                            "start_time": st.session_state.opening_hours_dict[day]["start_time"].strftime("%H:%M"),
-                            "end_time": st.session_state.opening_hours_dict[day]["end_time"].strftime("%H:%M")
-                        } for day in days_of_week_map.values()
-                    }
-                elif st.session_state.opening_option == "everyday" or st.session_state.opening_option == "every_other_day":
-                    updated_store["opening_hours"]["days"]["everyday"] = {
-                        "start_time": st.session_state.opening_hours_dict["everyday"]["start_time"].strftime("%H:%M"),
-                        "end_time": st.session_state.opening_hours_dict["everyday"]["end_time"].strftime("%H:%M")
-                    }
-                
-                canteens[canteen_index]["stores"][st.session_state.editing_store_index] = updated_store
-                save_canteens(canteens)
-                st.success(f"แก้ไขร้านค้า {st.session_state.store_name} ใน {st.session_state.selected_canteen} เรียบร้อยแล้ว!")
-
-                # Reset input values and editing state
-                st.session_state.editing_store_index = None
-                init_session_state()
+                # Reset input values
+                st.session_state.store_name = ""
+                st.session_state.opening_hours = []  # Clear opening hours
+                st.session_state.opening_hours_mode = "everyday"
                 st.rerun()
 
-    # --- Display, Edit, and Delete Stores ---
-    st.header(f"ข้อมูลร้านค้าใน {st.session_state.selected_canteen}")
+    st.header(f"ข้อมูลร้านค้าใน {canteen_options[st.session_state.selected_canteen_id]}")
 
-    for i, store in enumerate(canteens[canteen_index]["stores"]):
-        col1, col2, col3 = st.columns([3, 1, 1])
+    stores = load_stores()  # Reload store to reflect any changes
 
-        with col1:
-            st.write(f"**ชื่อร้าน:** {store['name']}")
-            
-            # --- Display Opening Hours (Modified) ---
-            freq_display = frequencies_map.get(store["opening_hours"]["frequency"], store["opening_hours"]["frequency"]) # Get Thai display or use English if not found
-            if store["opening_hours"]["frequency"] in ["everyday", "every_other_day"]:
-                st.write(f"**เวลาเปิด-ปิด:** {freq_display} {store['opening_hours']['days']["everyday"]['start_time']}-{store['opening_hours']['days']["everyday"]['end_time']}")
-            elif store["opening_hours"]["frequency"] == "specific_days":
-                for day, hours in store['opening_hours']['days'].items():
-                    day_thai = [thai_day for thai_day, eng_day in days_of_week_map.items() if eng_day == day][0]
-                    st.write(f"**{day_thai}:** {hours['start_time']}-{hours['end_time']}")
-            elif store["opening_hours"]["frequency"] == "date_range":
-                st.write(f"**วันที่:** {store['opening_hours']['start_date']} ถึง {store['opening_hours']['end_date']}")
-                for day, hours in store['opening_hours']['days'].items():
-                    day_thai = [thai_day for thai_day, eng_day in days_of_week_map.items() if eng_day == day][0]
-                    st.write(f"**{day_thai}:** {hours['start_time']}-{hours['end_time']}")
-            st.write(f"**จำนวนรายการอาหาร:** {len(store['food_items'])}")
+    for store in stores:
+        if str(store["canteenId"]) == st.session_state.selected_canteen_id:
+            col1, col2, col3 = st.columns([3, 1, 1])
 
-        with col2:
-            if st.button(f"แก้ไข", key=f"edit_store_{i}"):
-                # Set session state for editing
-                st.session_state.editing_store_index = i
-                st.session_state.selected_canteen = canteens[canteen_index]["canteen_name"]
-                st.rerun()
+            with col1:
+                st.write(f"**ชื่อร้าน:** {store['name']}")
+                st.write("**เวลาเปิดปิด:**")
+                for opening_hour in store.get("openingHours", []):
+                    st.write(
+                        f"- {opening_hour['dayOfWeek']}: {opening_hour['start']} ถึง {opening_hour['end']}"
+                    )
+                st.write(f"**จำนวนรายการอาหาร:** {len(store.get('menu', []))}")
 
-        with col3:
-            if st.button(f"ลบ", key=f"delete_store_{i}"):
-                canteens[canteen_index]["stores"].pop(i)
-                save_canteens(canteens)
-                st.session_state.editing_store_index = None
-                init_session_state()
-                st.rerun()
+            with col2:
+                # Use store.get('_id') safely to handle cases where _id might be missing
+                edit_button_key = f"edit_store_{store.get('_id', 'no_id')}"
+                if st.button("แก้ไข", key=edit_button_key):
+                    st.session_state.editing_store_id = str(
+                        store["_id"]
+                    )  # Convert ObjectId to string
+                    st.rerun()
+
+            with col3:
+                # Use store.get('_id') safely
+                delete_button_key = f"delete_store_{store.get('_id', 'no_id')}"
+                if st.button("ลบ", key=delete_button_key):
+                    delete_store(str(store["_id"]))
+                    st.rerun()

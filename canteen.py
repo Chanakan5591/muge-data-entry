@@ -2,6 +2,7 @@ import streamlit as st
 import pymongo
 import datetime
 import hmac
+from bson.objectid import ObjectId
 
 from pymongo.server_api import ServerApi
 
@@ -38,7 +39,6 @@ st.sidebar.markdown("Implementation by Chanakan Moongthin")
 st.sidebar.page_link("canteen.py", label="ข้อมูลโรงอาหาร", icon="🍽️")
 st.sidebar.page_link("pages/stores.py", label="ข้อมูลร้านค้า", icon="🏪")
 st.sidebar.page_link("pages/food_items.py", label="ข้อมูลรายการอาหาร", icon="🍲")
-st.sidebar.page_link("pages/download_json.py", label="ดาวน์โหลดข้อมูล JSON", icon="⬇️")
 
 @st.cache_resource()
 def database_init():
@@ -52,31 +52,34 @@ if not mongo:
 
 st.title("🍽️ ข้อมูลโรงอาหาร")
 
+# --- Database Operations ---
+canteen_collection = mongo.canteen_info.canteens  # Changed to match the schema
+
 # Function to load canteen data from MongoDB
 def load_canteens() -> list:
-    db = mongo.canteen_info
-    data = db.canteens.find()
+    data = canteen_collection.find()
     return list(data)
 
-# Function to save canteen data to MongoDB
-def save_canteens(canteens):
-    db = mongo.canteen_info
-    canteen_collection = db.canteens
+# Function to add a new canteen to MongoDB
+def add_canteen(canteen_data):
+    canteen_collection.insert_one(canteen_data)
 
-    for entry in canteens:
-        canteen_collection.replace_one(
-            {"id": entry['id']},
-            entry,
-            upsert=True
-        )
+# Function to update an existing canteen in MongoDB
+def update_canteen(canteen_id, canteen_data):
+    canteen_collection.update_one(
+        {"_id": ObjectId(canteen_id)},
+        {"$set": canteen_data}
+    )
 
-# Initialize input fields in session state if not present
+# Function to delete a canteen from MongoDB
+def delete_canteen(canteen_id):
+    canteen_collection.delete_one({"_id": ObjectId(canteen_id)})
+
+# --- Session State Initialization ---
 if "canteen_name" not in st.session_state:
     st.session_state.canteen_name = ""
-if "busy_start_time" not in st.session_state:
-    st.session_state.busy_start_time = datetime.time(11, 0)
-if "busy_end_time" not in st.session_state:
-    st.session_state.busy_end_time = datetime.time(13, 0)
+if "busy_periods" not in st.session_state:
+    st.session_state.busy_periods = []
 if "with_airconditioning" not in st.session_state:
     st.session_state.with_airconditioning = False
 if "editing_id" not in st.session_state:
@@ -86,140 +89,121 @@ if "editing_id" not in st.session_state:
 st.header("เพิ่ม/แก้ไข ข้อมูลโรงอาหาร")
 
 # --- Input Fields ---
-# Canteen name is now always editable
+# Canteen name
 st.session_state.canteen_name = st.text_input("กรอกชื่อโรงอาหาร", value=st.session_state.canteen_name)
 
+# Busy periods (multiple)
 st.write("**ช่วงเวลาที่มีลูกค้าเยอะ** (ระบุแค่ช่วงเวลา)")
-st.session_state.busy_start_time = st.time_input(
-    "เวลาเริ่มต้น", value=st.session_state.busy_start_time
-)
-st.session_state.busy_end_time = st.time_input(
-    "เวลาสิ้นสุด", value=st.session_state.busy_end_time
-)
-if st.session_state.busy_end_time < st.session_state.busy_start_time:
+busy_periods_col1, busy_periods_col2 = st.columns(2)
+new_start_time = busy_periods_col1.time_input("เวลาเริ่มต้น", value=datetime.time(11, 0), key="new_start")
+new_end_time = busy_periods_col2.time_input("เวลาสิ้นสุด", value=datetime.time(13, 0), key="new_end")
+if new_end_time < new_start_time:
     st.error("เวลาสิ้นสุดต้องมากกว่าเวลาเริ่มต้น")
 
+if st.button("เพิ่มช่วงเวลา", key="add_busy_period"):
+    if new_end_time > new_start_time:
+        st.session_state.busy_periods.append({
+            "start": new_start_time.strftime("%H:%M"),
+            "end": new_end_time.strftime("%H:%M")
+        })
+
+# Display added busy periods
+for i, period in enumerate(st.session_state.busy_periods):
+    st.write(f"- {period['start']} ถึง {period['end']}")
+    if st.button("ลบ", key=f"delete_period_{i}"):
+        st.session_state.busy_periods.pop(i)
+        st.rerun()
+
+# With air conditioning
 st.session_state.with_airconditioning = st.checkbox(
     "มีเครื่องปรับอากาศ", value=st.session_state.with_airconditioning
 )
-
-canteen_collection = mongo.canteen_info.canteens
 
 # --- Add or Edit Entry Button ---
 if st.session_state.editing_id is None:
     button_label = "เพิ่มข้อมูล"
     if st.button(button_label):
-        canteens = load_canteens()  # Load data inside the button logic
-        # Check for duplicate canteen names (case-insensitive)
-        canteen_names = [entry["canteen_name"].lower() for entry in canteens]
+        canteens = load_canteens()
+        canteen_names = [entry["name"].lower() for entry in canteens]
         if st.session_state.canteen_name.lower() in canteen_names:
             st.error("มีชื่อโรงอาหารนี้อยู่แล้ว กรุณาใช้ชื่ออื่น")
         elif not st.session_state.canteen_name:
             st.error("กรุณากรอกชื่อโรงอาหาร")
         else:
-            # Create a dictionary for the new entry
+            # Create a dictionary for the new entry, using the schema
             entry = {
-                "id": (
-                    max([c["id"] for c in canteens], default=0) + 1
-                ),
-                "canteen_name": st.session_state.canteen_name,
-                "busy_hours": {
-                    "start_time": st.session_state.busy_start_time.strftime("%H:%M"),
-                    "end_time": st.session_state.busy_end_time.strftime("%H:%M"),
-                },
-                "with_airconditioning": st.session_state.with_airconditioning,
-                "stores": [],
+                "name": st.session_state.canteen_name,
+                "busyPeriods": st.session_state.busy_periods,
+                "withAirConditioning": st.session_state.with_airconditioning,
+                "stores": [],  # Initialize with empty stores array, as per schema
             }
 
-            # Add the new entry to the canteen data
-            canteen_collection.insert_one(entry)
+            add_canteen(entry)
             st.success("เพิ่มข้อมูลโรงอาหารเรียบร้อยแล้ว!")
-
-            # Reset input values in session state
+            # Reset input values
             st.session_state.canteen_name = ""
-            st.session_state.busy_start_time = datetime.time(11, 0)
-            st.session_state.busy_end_time = datetime.time(13, 0)
+            st.session_state.busy_periods = []
             st.session_state.with_airconditioning = False
-            st.rerun()  # Force refresh after adding
+            st.rerun()
 else:
     button_label = "บันทึกการแก้ไข"
     if st.button(button_label):
-        canteens = load_canteens()  # Load data inside the button logic
+        canteens = load_canteens()
         if not st.session_state.canteen_name:
             st.error("กรุณากรอกชื่อโรงอาหาร")
         else:
-            # Check for duplicate canteen names (case-insensitive),
-            # excluding the current canteen being edited
-            canteen_names = [entry["canteen_name"].lower() for entry in canteens if entry["id"] != st.session_state.editing_id]
+            canteen_names = [entry["name"].lower() for entry in canteens if entry["_id"] != ObjectId(st.session_state.editing_id)]
             if st.session_state.canteen_name.lower() in canteen_names:
                 st.error("มีชื่อโรงอาหารนี้อยู่แล้ว กรุณาใช้ชื่ออื่น")
-                st.rerun()  # Force refresh to show error
             else:
-                # Find the entry to edit
-                entry_index = next((i for i, entry in enumerate(canteens) if entry["id"] == st.session_state.editing_id), None)
+                entry = {
+                    "name": st.session_state.canteen_name,
+                    "busyPeriods": st.session_state.busy_periods,
+                    "withAirConditioning": st.session_state.with_airconditioning
+                    # Stores are not updated here, as per the schema
+                }
 
-                if entry_index is not None:
-                    canteen_collection.update_one(
-                        {"id": st.session_state.editing_id},
-                        {
-                            "$set": {
-                                "canteen_name": st.session_state.canteen_name,
-                                "busy_hours": {
-                                    "start_time": st.session_state.busy_start_time.strftime("%H:%M"),
-                                    "end_time": st.session_state.busy_end_time.strftime("%H:%M"),
-                                },
-                                "with_airconditioning": st.session_state.with_airconditioning,
-                            }
-                        },
-                    )
+                update_canteen(st.session_state.editing_id, entry)
+                st.success("แก้ไขข้อมูลโรงอาหารเรียบร้อยแล้ว!")
 
-                    st.success("แก้ไขข้อมูลโรงอาหารเรียบร้อยแล้ว!")
-
-                    # Reset input values and editing state
-                    st.session_state.canteen_name = ""
-                    st.session_state.busy_start_time = datetime.time(11, 0)
-                    st.session_state.busy_end_time = datetime.time(13, 0)
-                    st.session_state.with_airconditioning = False
-                    st.session_state.editing_id = None
-                    st.rerun()  # Force refresh after editing
+                # Reset input values and editing state
+                st.session_state.canteen_name = ""
+                st.session_state.busy_periods = []
+                st.session_state.with_airconditioning = False
+                st.session_state.editing_id = None
+                st.rerun()
 
 # --- Display, Edit, and Delete ---
 st.header("ข้อมูลโรงอาหารปัจจุบัน")
 
-canteens = load_canteens() # Load data for display
+canteens = load_canteens()
 
-# Create columns for actions
-for i, entry in enumerate(canteens):
+for entry in canteens:
     col1, col2, col3 = st.columns([3, 1, 1])
+    # Convert ObjectId to string for display
+    entry_id_str = str(entry['_id'])
 
     with col1:
-        # Display entry details in Thai
-        st.write(f"**ชื่อโรงอาหาร:** {entry['canteen_name']}")
-        st.write(
-            f"**ช่วงเวลาที่มีลูกค้าเยอะ:** {entry['busy_hours']['start_time']} - {entry['busy_hours']['end_time']}"
-        )
+        st.write(f"**ชื่อโรงอาหาร:** {entry['name']}")
+        st.write("**ช่วงเวลาที่มีลูกค้าเยอะ:**")
+        for period in entry['busyPeriods']:
+            st.write(f"- {period['start']} ถึง {period['end']}")
         st.write(
             "**มีเครื่องปรับอากาศ:** "
-            + ("ใช่" if entry["with_airconditioning"] else "ไม่ใช่")
+            + ("ใช่" if entry["withAirConditioning"] else "ไม่ใช่")
         )
-        st.write(f"**จำนวนร้านค้า:** {len(entry['stores'])}")
+        st.write(f"**จำนวนร้านค้า:** {len(entry.get('stores', []))}")
 
     with col2:
-        if st.button("แก้ไข", key=f"edit_{entry['id']}"):
-            # Set session state for editing
-            st.session_state.editing_id = entry["id"]
-            st.session_state.canteen_name = entry["canteen_name"]
-            st.session_state.busy_start_time = datetime.datetime.strptime(
-                entry["busy_hours"]["start_time"], "%H:%M"
-            ).time()
-            st.session_state.busy_end_time = datetime.datetime.strptime(
-                entry["busy_hours"]["end_time"], "%H:%M"
-            ).time()
-            st.session_state.with_airconditioning = entry["with_airconditioning"]
-            st.rerun()  # Force refresh to update input fields
+        if st.button("แก้ไข", key=f"edit_{entry_id_str}"):
+            st.session_state.editing_id = entry_id_str
+            st.session_state.canteen_name = entry["name"]
+            st.session_state.busy_periods = entry["busyPeriods"]
+            st.session_state.with_airconditioning = entry["withAirConditioning"]
+            st.rerun()
 
     with col3:
-        if st.button("ลบ", key=f"delete_{entry['id']}"):
-            canteen_collection.delete_one({"id": entry['id']})
-            st.session_state.editing_id = None  # Reset editing state if deleting the edited item
-            st.rerun()  # Force refresh after deleting
+        if st.button("ลบ", key=f"delete_{entry_id_str}"):
+            delete_canteen(entry_id_str)
+            st.session_state.editing_id = None
+            st.rerun()
