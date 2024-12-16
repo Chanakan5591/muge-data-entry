@@ -52,8 +52,8 @@ if not mongo:
 st.title("🏪 ข้อมูลร้านค้า")
 
 # --- Database Operations ---
-canteen_collection = mongo.canteen_info.canteens  # Lowercase collection name, correct DB
-store_collection = mongo.canteen_info.stores  # Lowercase collection name, correct DB
+canteen_collection = mongo.canteen_info.canteens
+store_collection = mongo.canteen_info.stores
 
 # Function to load canteen data from MongoDB
 def load_canteens():
@@ -89,6 +89,8 @@ if "selected_canteen_id" not in st.session_state:
     st.session_state.selected_canteen_id = None
 if "store_name" not in st.session_state:
     st.session_state.store_name = ""
+if "store_description" not in st.session_state:
+    st.session_state.store_description = ""
 if "opening_hours" not in st.session_state:
     st.session_state.opening_hours = []
 if "opening_hours_mode" not in st.session_state:
@@ -96,6 +98,7 @@ if "opening_hours_mode" not in st.session_state:
 
 def init_session_state(store=None):
     st.session_state.store_name = store["name"] if store else ""
+    st.session_state.store_description = store["description"] if store else ""
     st.session_state.opening_hours_mode = (
         "everyday"
         if store
@@ -115,7 +118,6 @@ def init_session_state(store=None):
         )
         else "per_day"
     )
-    # Correctly initialize opening_hours from the store data
     st.session_state.opening_hours = (
         store.get("openingHours", []) if store else []
     )
@@ -148,6 +150,11 @@ else:
         "ชื่อร้านค้า", value=st.session_state.store_name
     )
 
+    # Store Description
+    st.session_state.store_description = st.text_area(
+        "คำอธิบายร้านค้า", value=st.session_state.store_description
+    )
+
     # Opening Hours Mode
     st.session_state.opening_hours_mode = st.radio(
         "เลือกรูปแบบเวลาเปิดปิด",
@@ -159,7 +166,6 @@ else:
     # Opening Hours
     st.write("**เวลาเปิดปิด**")
 
-    # Unified approach for handling opening hours (similar to "everyday")
     days_of_week = [
         "MONDAY",
         "TUESDAY",
@@ -252,12 +258,14 @@ else:
         if st.button(button_label):
             if not st.session_state.store_name:
                 st.error("กรุณากรอกชื่อร้านค้า")
+            elif not st.session_state.store_description:
+                st.error("กรุณากรอกคำอธิบายร้านค้า")
             elif not st.session_state.opening_hours:
                 st.error("กรุณาเพิ่มเวลาเปิดปิด")
             else:
-                # opening_hours is already populated correctly for both modes
                 new_store = {
                     "name": st.session_state.store_name,
+                    "description": st.session_state.store_description,
                     "canteenId": ObjectId(st.session_state.selected_canteen_id),
                     "openingHours": st.session_state.opening_hours,
                     "menu": [],
@@ -271,13 +279,14 @@ else:
 
                 # Reset input values
                 st.session_state.store_name = ""
-                st.session_state.opening_hours = []  # Clear opening hours
+                st.session_state.store_description = ""
+                st.session_state.opening_hours = []
                 st.session_state.opening_hours_mode = "everyday"
                 st.rerun()
 
     st.header(f"ข้อมูลร้านค้าใน {canteen_options[st.session_state.selected_canteen_id]}")
 
-    stores = load_stores()  # Reload store to reflect any changes
+    stores = load_stores()
 
     for store in stores:
         if str(store["canteenId"]) == st.session_state.selected_canteen_id:
@@ -285,6 +294,8 @@ else:
 
             with col1:
                 st.write(f"**ชื่อร้าน:** {store['name']}")
+                if "description" in store:
+                    st.write(f"**คำอธิบาย:** {store['description']}")
                 st.write("**เวลาเปิดปิด:**")
                 for opening_hour in store.get("openingHours", []):
                     st.write(
@@ -293,16 +304,12 @@ else:
                 st.write(f"**จำนวนรายการอาหาร:** {len(store.get('menu', []))}")
 
             with col2:
-                # Use store.get('_id') safely to handle cases where _id might be missing
                 edit_button_key = f"edit_store_{store.get('_id', 'no_id')}"
                 if st.button("แก้ไข", key=edit_button_key):
-                    st.session_state.editing_store_id = str(
-                        store["_id"]
-                    )  # Convert ObjectId to string
+                    st.session_state.editing_store_id = str(store["_id"])
                     st.rerun()
 
             with col3:
-                # Use store.get('_id') safely
                 delete_button_key = f"delete_store_{store.get('_id', 'no_id')}"
                 if st.button("ลบ", key=delete_button_key):
                     delete_store(str(store["_id"]))

@@ -1,7 +1,6 @@
 import streamlit as st
 import pymongo
 from pymongo.server_api import ServerApi
-import datetime
 import hmac
 from bson.objectid import ObjectId
 
@@ -78,8 +77,6 @@ if "selected_store_id" not in st.session_state:
     st.session_state.selected_store_id = None
 if "food_item_name" not in st.session_state:
     st.session_state.food_item_name = ""
-if "food_item_description" not in st.session_state:
-    st.session_state.food_item_description = ""
 if "food_item_price" not in st.session_state:
     st.session_state.food_item_price = 0.0
 if "food_item_category" not in st.session_state:
@@ -110,7 +107,6 @@ if st.session_state.selected_store_id:
     st.header("เพิ่มรายการอาหาร")
 
     st.session_state.food_item_name = st.text_input("ชื่ออาหาร", value=st.session_state.food_item_name)
-    st.session_state.food_item_description = st.text_area("คำอธิบาย (Optional)", value=st.session_state.food_item_description)
     st.session_state.food_item_price = st.number_input("ราคา", min_value=0.0, format="%.2f", value=st.session_state.food_item_price)
     st.session_state.food_item_category = st.selectbox(
         "หมวดหมู่",
@@ -130,7 +126,6 @@ if st.session_state.selected_store_id:
         else:
             new_food_item = {
                 "name": st.session_state.food_item_name,
-                "description": st.session_state.food_item_description,
                 "price": st.session_state.food_item_price,
                 "category": st.session_state.food_item_category,
             }
@@ -151,7 +146,6 @@ if st.session_state.selected_store_id:
 
                 # Reset input values
                 st.session_state.food_item_name = ""
-                st.session_state.food_item_description = ""
                 st.session_state.food_item_price = 0.0
                 st.session_state.food_item_category = "MAIN"
                 st.rerun()
@@ -162,8 +156,6 @@ if st.session_state.selected_store_id:
     if selected_store and "menu" in selected_store:
         for i, item in enumerate(selected_store["menu"]):
             st.write(f"**ชื่อ:** {item['name']}")
-            if item["description"]:
-                st.write(f"**คำอธิบาย:** {item['description']}")
             st.write(f"**ราคา:** {item['price']:.2f} บาท")
             st.write(f"**หมวดหมู่:** {item['category']}")
 
