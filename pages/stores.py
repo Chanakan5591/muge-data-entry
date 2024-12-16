@@ -103,7 +103,7 @@ def init_session_state(store=None):
         "everyday"
         if store
         and store.get("openingHours")
-        and len(store.get("openingHours")) == 7  # Check if all 7 days are present
+        and len(store.get("openingHours")) == 5  # Check if all 7 days are present
         and all(  # Check if all days of the week are present
             day in [d["dayOfWeek"] for d in store.get("openingHours")]
             for day in [
@@ -112,8 +112,6 @@ def init_session_state(store=None):
                 "WEDNESDAY",
                 "THURSDAY",
                 "FRIDAY",
-                "SATURDAY",
-                "SUNDAY",
             ]
         )
         else "per_day"
@@ -172,8 +170,6 @@ else:
         "WEDNESDAY",
         "THURSDAY",
         "FRIDAY",
-        "SATURDAY",
-        "SUNDAY",
     ]
 
     if st.session_state.opening_hours_mode == "everyday":
