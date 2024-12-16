@@ -51,29 +51,29 @@ if not mongo:
 
 st.title("🍲 ข้อมูลรายการอาหาร")
 
-def load_canteen_data():
-    db = mongo.muge_canteen
-    data = db.canteen_data.find()
+def load_canteens():
+    db = mongo.canteen_info
+    data = db.canteens.find()
     data = list(data)
     return data
 
-def save_canteen_data(canteen_data):
-    db = mongo.muge_canteen
-    canteen_collection = db.canteen_data
+def save_canteens(canteens):
+    db = mongo.canteen_info
+    canteen_collection = db.canteens
 
-    for entry in canteen_data:
+    for entry in canteens:
         canteen_collection.replace_one(
             {"id": entry['id']},
             entry,
             upsert=True
         )
 
-canteen_data = load_canteen_data()
+canteens = load_canteens()
 
 # --- Extract Existing Canteen Names, Store Names---
-existing_canteen_names = [entry["canteen_name"] for entry in canteen_data]
+existing_canteen_names = [entry["canteen_name"] for entry in canteens]
 existing_store_names = {}
-for canteen in canteen_data:
+for canteen in canteens:
     if canteen["canteen_name"] not in existing_store_names:
         existing_store_names[canteen["canteen_name"]] = [
             store["name"] for store in canteen["stores"]
@@ -102,7 +102,7 @@ if st.session_state.editing_food_index is not None:
     canteen_index_edit = next(
         (
             i
-            for i, c in enumerate(canteen_data)
+            for i, c in enumerate(canteens)
             if c["canteen_name"] == st.session_state.selected_canteen
         ),
         None,
@@ -111,18 +111,18 @@ if st.session_state.editing_food_index is not None:
         store_index_edit = next(
             (
                 i
-                for i, s in enumerate(canteen_data[canteen_index_edit]["stores"])
+                for i, s in enumerate(canteens[canteen_index_edit]["stores"])
                 if s["name"] == st.session_state.selected_store
             ),
             None,
         )
         if store_index_edit is not None:
             if st.session_state.editing_food_index < len(
-                canteen_data[canteen_index_edit]["stores"][store_index_edit][
+                canteens[canteen_index_edit]["stores"][store_index_edit][
                     "food_items"
                 ]
             ):
-                food_item = canteen_data[canteen_index_edit]["stores"][
+                food_item = canteens[canteen_index_edit]["stores"][
                     store_index_edit
                 ]["food_items"][st.session_state.editing_food_index]
                 st.session_state.food_name = food_item["name"]
@@ -168,7 +168,7 @@ if st.session_state.selected_canteen:
         canteen_index = next(
             (
                 i
-                for i, c in enumerate(canteen_data)
+                for i, c in enumerate(canteens)
                 if c["canteen_name"] == st.session_state.selected_canteen
             ),
             None,
@@ -176,7 +176,7 @@ if st.session_state.selected_canteen:
         store_index = next(
             (
                 i
-                for i, s in enumerate(canteen_data[canteen_index]["stores"])
+                for i, s in enumerate(canteens[canteen_index]["stores"])
                 if s["name"] == st.session_state.selected_store
             ),
             None,
@@ -224,7 +224,7 @@ if st.session_state.selected_canteen:
                     food_item["prices"]["special"] = st.session_state.special_price
 
                 if st.session_state.editing_food_index is not None:
-                    canteen_data[canteen_index]["stores"][store_index]["food_items"][
+                    canteens[canteen_index]["stores"][store_index]["food_items"][
                         st.session_state.editing_food_index
                     ] = food_item
                     st.success(
@@ -237,12 +237,12 @@ if st.session_state.selected_canteen:
                 else:
                     if (
                         "food_items"
-                        not in canteen_data[canteen_index]["stores"][store_index]
+                        not in canteens[canteen_index]["stores"][store_index]
                     ):
-                        canteen_data[canteen_index]["stores"][store_index][
+                        canteens[canteen_index]["stores"][store_index][
                             "food_items"
                         ] = []
-                    canteen_data[canteen_index]["stores"][store_index][
+                    canteens[canteen_index]["stores"][store_index][
                         "food_items"
                     ].append(food_item)
                     st.success(
@@ -252,7 +252,7 @@ if st.session_state.selected_canteen:
                     st.session_state.normal_price = 0.0
                     st.session_state.special_price = None
 
-                save_canteen_data(canteen_data)
+                save_canteens(canteens)
 
             else:
                 st.error("กรุณากรอกชื่ออาหารและราคา(ธรรมดา)")
@@ -260,9 +260,9 @@ if st.session_state.selected_canteen:
         st.header(
             f"รายการอาหารของร้าน {st.session_state.selected_store} ({st.session_state.selected_canteen})"
         )
-        if "food_items" in canteen_data[canteen_index]["stores"][store_index]:
+        if "food_items" in canteens[canteen_index]["stores"][store_index]:
             for i, item in enumerate(
-                canteen_data[canteen_index]["stores"][store_index]["food_items"]
+                canteens[canteen_index]["stores"][store_index]["food_items"]
             ):
                 col1, col2, col3 = st.columns([3, 1, 1])
                 with col1:
@@ -279,10 +279,10 @@ if st.session_state.selected_canteen:
                         st.rerun()
                 with col3:
                     if st.button(f"ลบ", key=f"delete_food_{i}"):
-                        canteen_data[canteen_index]["stores"][store_index][
+                        canteens[canteen_index]["stores"][store_index][
                             "food_items"
                         ].pop(i)
-                        save_canteen_data(canteen_data)
+                        save_canteens(canteens)
                         st.session_state.editing_food_index = None
                         st.rerun()
 else:

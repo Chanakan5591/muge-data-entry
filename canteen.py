@@ -54,13 +54,13 @@ st.title("🍽️ ข้อมูลโรงอาหาร")
 
 # Function to load canteen data from MongoDB
 def load_canteens() -> list:
-    db = mongo.muge_canteen
+    db = mongo.canteen_info
     data = db.canteens.find()
     return list(data)
 
 # Function to save canteen data to MongoDB
 def save_canteens(canteens):
-    db = mongo.muge_canteen
+    db = mongo.canteen_info
     canteen_collection = db.canteens
 
     for entry in canteens:
@@ -103,7 +103,7 @@ st.session_state.with_airconditioning = st.checkbox(
     "มีเครื่องปรับอากาศ", value=st.session_state.with_airconditioning
 )
 
-canteen_collection = mongo.muge_canteen.canteens
+canteen_collection = mongo.canteen_info.canteens
 
 # --- Add or Edit Entry Button ---
 if st.session_state.editing_id is None:

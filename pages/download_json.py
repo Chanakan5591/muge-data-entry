@@ -47,10 +47,10 @@ if not mongo:
     st.stop()
 
 # MongoDB collection reference
-canteen_collection = mongo.muge_canteen.canteen_data
+canteen_collection = mongo.canteen_info.canteens
 
 
-def load_canteen_data():
+def load_canteens():
     """Fetch canteen data from MongoDB."""
     data = canteen_collection.find()
     return list(data)
@@ -67,18 +67,18 @@ st.sidebar.page_link("pages/download_json.py", label="ดาวน์โหล�
 st.title("⬇️ ดาวน์โหลดข้อมูล JSON")
 
 # Load data from the database
-canteen_data = load_canteen_data()
+canteens = load_canteens()
 
-if not canteen_data:
+if not canteens:
     st.warning("ไม่มีข้อมูลโรงอาหารในระบบ")
 else:
     # Convert data to JSON format
-    for entry in canteen_data:
+    for entry in canteens:
         # Remove MongoDB-specific '_id' field for JSON compatibility
         if "_id" in entry:
             entry.pop("_id")
 
-    json_data = json.dumps(canteen_data, ensure_ascii=False, indent=4)
+    json_data = json.dumps(canteens, ensure_ascii=False, indent=4)
 
     # Display JSON data in a text area
     st.subheader("Preview Data")
@@ -88,6 +88,6 @@ else:
     st.download_button(
         label="📥 ดาวน์โหลด JSON",
         data=json_data,
-        file_name="canteen_data.json",
+        file_name="canteens.json",
         mime="application/json",
     )
