@@ -99,27 +99,33 @@ if "opening_hours_mode" not in st.session_state:
 def init_session_state(store=None):
     st.session_state.store_name = store["name"] if store else ""
     st.session_state.store_description = store["description"] if store else ""
-    st.session_state.opening_hours_mode = (
-        "everyday"
-        if store
-        and store.get("openingHours")
-        and len(store.get("openingHours")) == 5  # Check if all 7 days are present
-        and all(  # Check if all days of the week are present
-            day in [d["dayOfWeek"] for d in store.get("openingHours")]
-            for day in [
-                "MONDAY",
-                "TUESDAY",
-                "WEDNESDAY",
-                "THURSDAY",
-                "FRIDAY",
-            ]
-        )
-        else "per_day"
-    )
-    st.session_state.opening_hours = (
-        store.get("openingHours", []) if store else []
-    )
 
+    if store and store.get("openingHours"):
+        # Determine opening_hours_mode based on data
+        opening_hours = store.get("openingHours")
+        days_count = len(opening_hours)
+
+        if days_count == 5:
+            # Check if all 5 days are present and have the same start and end times
+            first_day_start = opening_hours[0]["start"]
+            first_day_end = opening_hours[0]["end"]
+            all_same_times = all(
+                d["start"] == first_day_start and d["end"] == first_day_end
+                for d in opening_hours
+            )
+            if all_same_times:
+                st.session_state.opening_hours_mode = "everyday"
+            else:
+                st.session_state.opening_hours_mode = "per_day"
+        else:
+            st.session_state.opening_hours_mode = "per_day"  # Default to per_day if not exactly 5 days
+
+        st.session_state.opening_hours = opening_hours
+    else:
+        st.session_state.opening_hours_mode = "everyday"  # Default mode
+        st.session_state.opening_hours = []
+
+# Initialize session state if not already initialized
 if st.session_state.editing_store_id:
     # Find the store being edited
     for store in stores:
@@ -129,8 +135,6 @@ if st.session_state.editing_store_id:
             break
 else:
     init_session_state()
-
-# --- Input Fields ---
 # Select Canteen
 canteen_options = {str(c["_id"]): c["name"] for c in canteens}
 st.session_state.selected_canteen_id = st.selectbox(
@@ -175,11 +179,24 @@ else:
     if st.session_state.opening_hours_mode == "everyday":
         # If mode is "everyday", create entries for all days
         opening_hours_col1, opening_hours_col2 = st.columns(2)
+
+        # --- FIX for everyday mode ---
+        # Get default values from the first day in opening_hours if editing
+        default_start = datetime.time(8, 0)
+        default_end = datetime.time(17, 0)
+        if st.session_state.opening_hours and len(st.session_state.opening_hours) > 0:
+            default_start = datetime.datetime.strptime(
+                st.session_state.opening_hours[0]["start"], "%H:%M"
+            ).time()
+            default_end = datetime.datetime.strptime(
+                st.session_state.opening_hours[0]["end"], "%H:%M"
+            ).time()
+
         new_start_time = opening_hours_col1.time_input(
-            "เวลาเริ่มต้น (ทุกวัน)", value=datetime.time(8, 0), key="new_start_everyday"
+            "เวลาเริ่มต้น (ทุกวัน)", value=default_start, key="new_start_everyday"
         )
         new_end_time = opening_hours_col2.time_input(
-            "เวลาสิ้นสุด (ทุกวัน)", value=datetime.time(17, 0), key="new_end_everyday"
+            "เวลาสิ้นสุด (ทุกวัน)", value=default_end, key="new_end_everyday"
         )
 
         st.session_state.opening_hours = [
@@ -191,7 +208,7 @@ else:
             for day in days_of_week
         ]
 
-    else:  # per_day mode
+    else:  # per_day mode (This part was already working correctly)
         for day in days_of_week:
             # Find existing entry for the day
             existing_entry = next(
@@ -218,11 +235,13 @@ else:
                 else datetime.time(17, 0)
             )
 
+            # Use store_id in the key to make them unique
+            store_id = st.session_state.editing_store_id
             new_start_time = opening_hours_col1.time_input(
-                "เวลาเริ่มต้น", value=default_start, key=f"new_start_{day}"
+                "เวลาเริ่มต้น", value=default_start, key=f"new_start_{day}_{store_id}"
             )
             new_end_time = opening_hours_col2.time_input(
-                "เวลาสิ้นสุด", value=default_end, key=f"new_end_{day}"
+                "เวลาสิ้นสุด", value=default_end, key=f"new_end_{day}_{store_id}"
             )
 
             # Update or add the entry in session state
@@ -241,7 +260,6 @@ else:
             else:
                 # Add new entry
                 st.session_state.opening_hours.append(new_opening_hour)
-
     # Display opening hours
     for opening_hour in st.session_state.opening_hours:
         st.write(
@@ -279,6 +297,26 @@ else:
                 st.session_state.opening_hours = []
                 st.session_state.opening_hours_mode = "everyday"
                 st.rerun()
+    else:
+        # Save Changes button for editing mode
+        if st.button("บันทึกการเปลี่ยนแปลง"):
+            updated_store = {
+                "name": st.session_state.store_name,
+                "description": st.session_state.store_description,
+                "canteenId": ObjectId(st.session_state.selected_canteen_id),
+                "openingHours": st.session_state.opening_hours,
+                "menu": [],  # You might want to update the menu as well
+            }
+            update_store(st.session_state.editing_store_id, updated_store)
+
+            st.success(
+                f"อัปเดตร้านค้า {st.session_state.store_name} ใน {canteen_options[st.session_state.selected_canteen_id]} เรียบร้อยแล้ว!"
+            )
+
+            # Reset editing mode
+            st.session_state.editing_store_id = None
+            init_session_state()  # Reset session state to default values
+            st.rerun()
 
     st.header(f"ข้อมูลร้านค้าใน {canteen_options[st.session_state.selected_canteen_id]}")
 
