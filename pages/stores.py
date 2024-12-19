@@ -8,7 +8,7 @@ from bson.objectid import ObjectId
 st.set_page_config(page_title="ข้อมูลร้านค้า", page_icon="🏪")
 
 def check_password():
-    """Returns `True` if the user had the correct password."""
+    """Returns True if the user had the correct password."""
 
     def password_entered():
         """Checks whether a password entered by the user is correct."""
@@ -300,12 +300,16 @@ else:
     else:
         # Save Changes button for editing mode
         if st.button("บันทึกการเปลี่ยนแปลง"):
+            # Retrieve the existing menu before updating
+            existing_store = store_collection.find_one({"_id": ObjectId(st.session_state.editing_store_id)})
+            existing_menu = existing_store.get("menu", []) if existing_store else []
+
             updated_store = {
                 "name": st.session_state.store_name,
                 "description": st.session_state.store_description,
                 "canteenId": ObjectId(st.session_state.selected_canteen_id),
                 "openingHours": st.session_state.opening_hours,
-                "menu": [],  # You might want to update the menu as well
+                "menu": existing_menu,  # Keep the existing menu
             }
             update_store(st.session_state.editing_store_id, updated_store)
 
