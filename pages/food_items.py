@@ -81,6 +81,10 @@ if "food_item_price" not in st.session_state:
     st.session_state.food_item_price = 0.0
 if "food_item_category" not in st.session_state:
     st.session_state.food_item_category = "MAIN"
+if "food_item_sub_category" not in st.session_state:
+    st.session_state.food_item_sub_category = ""
+if "editing_item_index" not in st.session_state:
+    st.session_state.editing_item_index = None
 
 # --- Dropdowns to Select Canteen and Store ---
 canteen_options = {str(c["_id"]): c["name"] for c in canteens}
@@ -104,7 +108,22 @@ if st.session_state.selected_canteen_id:
 
 # --- Input Form for Food Item ---
 if st.session_state.selected_store_id:
-    st.header("เพิ่มรายการอาหาร")
+    st.header("เพิ่ม/แก้ไขรายการอาหาร")
+
+    # Check if editing an existing item or adding a new one
+    if st.session_state.editing_item_index is not None:
+        selected_store = next((s for s in stores if str(s["_id"]) == st.session_state.selected_store_id), None)
+        if selected_store and "menu" in selected_store:
+            editing_item = selected_store["menu"][st.session_state.editing_item_index]
+            st.session_state.food_item_name = editing_item["name"]
+            st.session_state.food_item_price = editing_item["price"]
+            st.session_state.food_item_category = editing_item["category"]
+            st.session_state.food_item_sub_category = editing_item.get("sub_category", "") # Get sub_category if exists, otherwise default to ""
+    else:
+        st.session_state.food_item_name = ""
+        st.session_state.food_item_price = 0.0
+        st.session_state.food_item_category = "MAIN"
+        st.session_state.food_item_sub_category = "" # Reset sub_category for new item
 
     st.session_state.food_item_name = st.text_input("ชื่ออาหาร", value=st.session_state.food_item_name)
     st.session_state.food_item_price = st.number_input("ราคา", min_value=0.0, format="%.2f", value=st.session_state.food_item_price)
@@ -119,8 +138,15 @@ if st.session_state.selected_store_id:
             "VEGETARIAN": "มังสวิรัติ"
         }.get(x, x)
     )
+    st.session_state.food_item_sub_category = st.text_input("หมวดหมู่ย่อย (ถ้ามี)", value=st.session_state.food_item_sub_category)
 
-    if st.button("เพิ่มรายการอาหาร"):
+    # --- Edit/Add Button ---
+    if st.session_state.editing_item_index is not None:
+        button_label = "แก้ไขรายการอาหาร"
+    else:
+        button_label = "เพิ่มรายการอาหาร"
+
+    if st.button(button_label):
         if not st.session_state.food_item_name or st.session_state.food_item_price == 0.0:
             st.error("กรุณากรอกชื่ออาหารและราคา")
         else:
@@ -128,6 +154,7 @@ if st.session_state.selected_store_id:
                 "name": st.session_state.food_item_name,
                 "price": st.session_state.food_item_price,
                 "category": st.session_state.food_item_category,
+                "sub_category": st.session_state.food_item_sub_category,
             }
 
             # Find the selected store and update its menu
@@ -136,18 +163,27 @@ if st.session_state.selected_store_id:
                 if "menu" not in selected_store:
                     selected_store["menu"] = []
 
-                # Append the new food item to the menu
-                selected_store["menu"].append(new_food_item)
+                if st.session_state.editing_item_index is not None:
+                    # Update the existing item
+                    selected_store["menu"][st.session_state.editing_item_index] = new_food_item
+                    st.session_state.editing_item_index = None  # Reset editing mode
+                else:
+                    # Append the new food item to the menu
+                    selected_store["menu"].append(new_food_item)
                 
                 # Update the store in the database
                 update_store(st.session_state.selected_store_id, selected_store)
 
-                st.success(f"เพิ่มรายการอาหาร '{st.session_state.food_item_name}' เรียบร้อยแล้ว")
+                if st.session_state.editing_item_index is None:
+                    st.success(f"เพิ่มรายการอาหาร '{st.session_state.food_item_name}' เรียบร้อยแล้ว")
+                else:
+                    st.success(f"แก้ไขรายการอาหาร '{st.session_state.food_item_name}' เรียบร้อยแล้ว")
 
                 # Reset input values
                 st.session_state.food_item_name = ""
                 st.session_state.food_item_price = 0.0
                 st.session_state.food_item_category = "MAIN"
+                st.session_state.food_item_sub_category = ""
                 st.rerun()
 
     # --- Display Existing Menu Items ---
@@ -158,8 +194,9 @@ if st.session_state.selected_store_id:
             st.write(f"**ชื่อ:** {item['name']}")
             st.write(f"**ราคา:** {item['price']:.2f} บาท")
             st.write(f"**หมวดหมู่:** {item['category']}")
+            st.write(f"**หมวดหมู่ย่อย:** {item.get('sub_category', '-')}") # Display sub_category
 
-            col1, col2 = st.columns([1, 5])
+            col1, col2, col3 = st.columns([1, 1, 5])
             
             if col1.button("ลบ", key=f"delete_item_{i}"):
                 # Remove the item from the menu
@@ -167,6 +204,11 @@ if st.session_state.selected_store_id:
                 
                 # Update the store in the database
                 update_store(st.session_state.selected_store_id, selected_store)
+                st.rerun()
+            
+            if col2.button("แก้ไข", key=f"edit_item_{i}"):
+                # Set the item index to be edited and populate form fields
+                st.session_state.editing_item_index = i
                 st.rerun()
             
             st.markdown("---")  # Add a separator between items
