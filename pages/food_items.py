@@ -122,20 +122,18 @@ if st.session_state.selected_store_id:
     else:
         st.session_state.food_item_name = ""
         st.session_state.food_item_price = 0.0
-        st.session_state.food_item_category = "MAIN"
+        st.session_state.food_item_category = "food"
         st.session_state.food_item_sub_category = "" # Reset sub_category for new item
 
     st.session_state.food_item_name = st.text_input("ชื่ออาหาร", value=st.session_state.food_item_name)
     st.session_state.food_item_price = st.number_input("ราคา", min_value=0.0, format="%.2f", value=st.session_state.food_item_price)
     st.session_state.food_item_category = st.selectbox(
         "หมวดหมู่",
-        options=["MAIN", "SIDE", "DRINK", "VEGETARIAN"],
-        index=["MAIN", "SIDE", "DRINK", "VEGETARIAN"].index(st.session_state.food_item_category),
+        options=["food", "DRINK"],
+        index=["food", "DRINK"].index(st.session_state.food_item_category),
         format_func=lambda x: {
-            "MAIN": "อาหารจานหลัก",
-            "SIDE": "กับข้าว",
+            "food": "อาหาร",
             "DRINK": "เครื่องดื่ม",
-            "VEGETARIAN": "มังสวิรัติ"
         }.get(x, x)
     )
     st.session_state.food_item_sub_category = st.text_input("หมวดหมู่ย่อย (ถ้ามี)", value=st.session_state.food_item_sub_category)
