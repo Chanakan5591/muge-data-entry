@@ -113,20 +113,20 @@ if st.session_state.selected_store_id:
     # --- Sub Category Mapping ---
     sub_category_mapping = {
         "food": {
-            "ก๋วยเตี๋ยว เกาเหลา": "Noodles",
-            "ต้ม แกง": "Soup/Curry",
-            "ข้าวมันไก่": "Chicken Rice",
-            "ข้าวราดแกง/ข้าวต่าง ๆ": "Rice with Toppings",
-            "ส้มตำ อาหารอีสาน": "Som Tum/Isan Food",
-            "สเต็ก": "Steak",
-            "อาหารญี่ปุ่น": "Japanese Food",
-            "อื่น ๆ": "Others",
+            "ก๋วยเตี๋ยว เกาเหลา": "noodles",
+            "ต้ม แกง": "soup_curry",
+            "ข้าวมันไก่": "chicken_rice",
+            "ข้าวราดแกง/ข้าวต่าง ๆ": "rice_curry",
+            "ส้มตำ อาหารอีสาน": "somtum_northeastern",
+            "สเต็ก": "steak",
+            "อาหารญี่ปุ่น": "japanese",
+            "อื่น ๆ": "others",
         },
         "DRINK": {
-            "น้ำหวาน": "Sweet Drinks",
-            "น้ำผลไม้/น้ำปั่น": "Juice/Smoothies",
-            "ชา กาแฟ": "Tea/Coffee",
-            "อื่น ๆ": "Others",
+            "น้ำหวาน": "sweetened",
+            "น้ำผลไม้/น้ำปั่น": "juice_smoothie",
+            "ชา กาแฟ": "tea_coffee",
+            "อื่น ๆ": "others",
         },
     }
 
