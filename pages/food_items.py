@@ -80,7 +80,7 @@ if "food_item_name" not in st.session_state:
 if "food_item_price" not in st.session_state:
     st.session_state.food_item_price = 0.0
 if "food_item_category" not in st.session_state:
-    st.session_state.food_item_category = "MAIN"
+    st.session_state.food_item_category = "food"
 if "food_item_sub_category" not in st.session_state:
     st.session_state.food_item_sub_category = ""
 if "editing_item_index" not in st.session_state:
@@ -110,7 +110,27 @@ if st.session_state.selected_canteen_id:
 if st.session_state.selected_store_id:
     st.header("เพิ่ม/แก้ไขรายการอาหาร")
 
-    # Check if editing an existing item or adding a new one
+    # --- Sub Category Mapping ---
+    sub_category_mapping = {
+        "food": {
+            "ก๋วยเตี๋ยว เกาเหลา": "Noodles",
+            "ต้ม แกง": "Soup/Curry",
+            "ข้าวมันไก่": "Chicken Rice",
+            "ข้าวราดแกง/ข้าวต่าง ๆ": "Rice with Toppings",
+            "ส้มตำ อาหารอีสาน": "Som Tum/Isan Food",
+            "สเต็ก": "Steak",
+            "อาหารญี่ปุ่น": "Japanese Food",
+            "อื่น ๆ": "Others",
+        },
+        "DRINK": {
+            "น้ำหวาน": "Sweet Drinks",
+            "น้ำผลไม้/น้ำปั่น": "Juice/Smoothies",
+            "ชา กาแฟ": "Tea/Coffee",
+            "อื่น ๆ": "Others",
+        },
+    }
+
+    # --- Load Existing Data if Editing ---
     if st.session_state.editing_item_index is not None:
         selected_store = next((s for s in stores if str(s["_id"]) == st.session_state.selected_store_id), None)
         if selected_store and "menu" in selected_store:
@@ -118,13 +138,21 @@ if st.session_state.selected_store_id:
             st.session_state.food_item_name = editing_item["name"]
             st.session_state.food_item_price = editing_item["price"]
             st.session_state.food_item_category = editing_item["category"]
-            st.session_state.food_item_sub_category = editing_item.get("sub_category", "") # Get sub_category if exists, otherwise default to ""
+
+            # Reverse lookup for display
+            if st.session_state.food_item_category in sub_category_mapping:
+                reverse_mapping = {v: k for k, v in sub_category_mapping[st.session_state.food_item_category].items()}
+                st.session_state.food_item_sub_category = reverse_mapping.get(editing_item.get("sub_category", ""), "")
+            else:
+                st.session_state.food_item_sub_category = ""
+
     else:
         st.session_state.food_item_name = ""
         st.session_state.food_item_price = 0.0
         st.session_state.food_item_category = "food"
-        st.session_state.food_item_sub_category = "" # Reset sub_category for new item
+        st.session_state.food_item_sub_category = ""
 
+    # --- Input Fields ---
     st.session_state.food_item_name = st.text_input("ชื่ออาหาร", value=st.session_state.food_item_name)
     st.session_state.food_item_price = st.number_input("ราคา", min_value=0.0, format="%.2f", value=st.session_state.food_item_price)
     st.session_state.food_item_category = st.selectbox(
@@ -136,7 +164,16 @@ if st.session_state.selected_store_id:
             "DRINK": "เครื่องดื่ม",
         }.get(x, x)
     )
-    st.session_state.food_item_sub_category = st.text_input("หมวดหมู่ย่อย (ถ้ามี)", value=st.session_state.food_item_sub_category)
+
+    # --- Sub Category Selection ---
+    if st.session_state.food_item_category in sub_category_mapping:
+        st.session_state.food_item_sub_category = st.selectbox(
+            "หมวดหมู่ย่อย",
+            options=sub_category_mapping[st.session_state.food_item_category].keys(),
+            index=list(sub_category_mapping[st.session_state.food_item_category].keys()).index(st.session_state.food_item_sub_category) if st.session_state.food_item_sub_category in sub_category_mapping[st.session_state.food_item_category] else 0,
+        )
+    else:
+        st.session_state.food_item_sub_category = ""
 
     # --- Edit/Add Button ---
     if st.session_state.editing_item_index is not None:
@@ -148,11 +185,14 @@ if st.session_state.selected_store_id:
         if not st.session_state.food_item_name or st.session_state.food_item_price == 0.0:
             st.error("กรุณากรอกชื่ออาหารและราคา")
         else:
+            # Translate sub_category to English for database storage
+            translated_sub_category = sub_category_mapping[st.session_state.food_item_category].get(st.session_state.food_item_sub_category, "")
+
             new_food_item = {
                 "name": st.session_state.food_item_name,
                 "price": st.session_state.food_item_price,
                 "category": st.session_state.food_item_category,
-                "sub_category": st.session_state.food_item_sub_category,
+                "sub_category": translated_sub_category,
             }
 
             # Find the selected store and update its menu
@@ -168,7 +208,7 @@ if st.session_state.selected_store_id:
                 else:
                     # Append the new food item to the menu
                     selected_store["menu"].append(new_food_item)
-                
+
                 # Update the store in the database
                 update_store(st.session_state.selected_store_id, selected_store)
 
@@ -180,7 +220,7 @@ if st.session_state.selected_store_id:
                 # Reset input values
                 st.session_state.food_item_name = ""
                 st.session_state.food_item_price = 0.0
-                st.session_state.food_item_category = "MAIN"
+                st.session_state.food_item_category = "food"
                 st.session_state.food_item_sub_category = ""
                 st.rerun()
 
@@ -192,23 +232,31 @@ if st.session_state.selected_store_id:
             st.write(f"**ชื่อ:** {item['name']}")
             st.write(f"**ราคา:** {item['price']:.2f} บาท")
             st.write(f"**หมวดหมู่:** {item['category']}")
-            st.write(f"**หมวดหมู่ย่อย:** {item.get('sub_category', '-')}") # Display sub_category
+
+            # Display sub_category in Thai using reverse lookup
+            if item["category"] in sub_category_mapping:
+                reverse_mapping = {v: k for k, v in sub_category_mapping[item["category"]].items()}
+                display_sub_category = reverse_mapping.get(item.get("sub_category", ""), "-")
+            else:
+                display_sub_category = "-"
+
+            st.write(f"**หมวดหมู่ย่อย:** {display_sub_category}")
 
             col1, col2, col3 = st.columns([1, 1, 5])
-            
+
             if col1.button("ลบ", key=f"delete_item_{i}"):
                 # Remove the item from the menu
                 selected_store["menu"].pop(i)
-                
+
                 # Update the store in the database
                 update_store(st.session_state.selected_store_id, selected_store)
                 st.rerun()
-            
+
             if col2.button("แก้ไข", key=f"edit_item_{i}"):
                 # Set the item index to be edited and populate form fields
                 st.session_state.editing_item_index = i
                 st.rerun()
-            
+
             st.markdown("---")  # Add a separator between items
     else:
         st.write("ยังไม่มีรายการอาหารสำหรับร้านค้านี้")
